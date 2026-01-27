@@ -1,0 +1,74 @@
+// Prisma Schema for Resilient SMS Server
+// PostgreSQL database with User and Transaction models
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Modèle User (utilisateurs du système)
+model User {
+  id        Int      @id @default(autoincrement())
+  userId    String   @unique @map("user_id")        // USER3456
+  balance   Int      @default(0)                    // Solde en FCFA
+  pin       String                                  // PIN de sécurité
+  name      String?                                 // Nom complet
+  phone     String?  @unique                        // Numéro téléphone
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  sentTransactions     Transaction[] @relation("FromUser")
+  receivedTransactions Transaction[] @relation("ToUser")
+
+  @@map("users")  // Nom table en BDD
+}
+
+// Modèle Transaction (toutes les transactions SMS)
+model Transaction {
+  id            Int       @id @default(autoincrement())
+  transactionId String    @unique @map("transaction_id")  // A7F, B2C, etc.
+  type          TransactionType                           // TRANSFER, PAYMENT, BALANCE
+  amount        Int?                                       // Montant (null pour BALANCE)
+  status        TransactionStatus @default(PENDING)       // Statut transaction
+
+  // Données SMS
+  smsText       String?   @map("sms_text")               // SMS reçu
+  responseText  String?   @map("response_text")          // SMS envoyé
+  errorMessage  String?   @map("error_message")          // Si erreur
+
+  // Timestamps
+  createdAt     DateTime  @default(now()) @map("created_at")
+  completedAt   DateTime? @map("completed_at")
+
+  // Relations utilisateurs
+  fromUserId String @map("from_user")
+  toUserId   String? @map("to_user")
+
+  fromUser User  @relation("FromUser", fields: [fromUserId], references: [userId])
+  toUser   User? @relation("ToUser", fields: [toUserId], references: [userId])
+
+  // Index pour performance
+  @@index([fromUserId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+// Enums pour type safety
+enum TransactionType {
+  TRANSFER
+  PAYMENT
+  BALANCE
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
