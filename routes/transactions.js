@@ -4,28 +4,29 @@ const PrismaService = require('../services/prismaService');
 const ResponseFormatter = require('../utils/responseFormatter');
 const SMSParser = require('../utils/smsParser');
 const { verifyPin } = require('../utils/pinEncryption');
+const TransferService = require('../services/transferService');
 
 /**
  * POST /api/transactions/transfer
  * Execute a money transfer between users
  */
 router.post('/transfer', async (req, res) => {
-  const { fromUserId, toUserId, amount, pin } = req.body;
+  const { from, to, amount, pin } = req.body;
 
-  console.log(`💸 API Transfer: ${amount} from ${fromUserId} to ${toUserId}`);
+  console.log(`💸 req.body:`, req.body);
 
   try {
     // Validate required fields
-    if (!fromUserId || !toUserId || !amount || !pin) {
+    if (!from || !to || !amount || !pin) {
       return res.status(400).json({
         status: 'error',
         code: 'MISSING_FIELDS',
-        message: 'fromUserId, toUserId, amount, and pin are required'
+        message: 'from, to, amount, and pin are required'
       });
     }
 
-    // Get sender
-    const fromUser = await PrismaService.getUser(fromUserId);
+    // Find users by phone number
+    const fromUser = await PrismaService.getUserByPhone(from);
     if (!fromUser) {
       return res.status(404).json({
         status: 'error',
@@ -34,84 +35,51 @@ router.post('/transfer', async (req, res) => {
       });
     }
 
-    // Validate PIN
-    const pinValid = await verifyPin(pin, fromUser.pin);
-    if (!pinValid) {
+    const toUser = await PrismaService.getUserByPhone(to);
+    if (!toUser) {
+      return res.status(404).json({
+        status: 'error',
+        code: 'USER_NOT_FOUND',
+        message: 'Recipient not found'
+      });
+    }
+
+    // Verify token ownership
+    if (req.user.userId !== fromUser.userId) {
       return res.status(403).json({
         status: 'error',
-        code: 'INVALID_PIN',
-        message: 'Invalid PIN'
+        code: 'FORBIDDEN',
+        message: 'Token does not match from'
       });
     }
 
-    // Check balance
-    if (amount > fromUser.balance) {
-      return res.status(400).json({
-        status: 'error',
-        code: 'INSUFFICIENT_FUNDS',
-        message: 'Insufficient funds',
-        data: {
-          currentBalance: fromUser.balance,
-          requestedAmount: amount
-        }
-      });
-    }
-
-    // Check daily limit
-    if (amount > 1000000) {
-      return res.status(400).json({
-        status: 'error',
-        code: 'DAILY_LIMIT_EXCEEDED',
-        message: 'Daily limit exceeded (1,000,000 FCFA)',
-        data: { limit: 1000000 }
-      });
-    }
-
-    // Generate transaction ID
-    const transactionId = `TXN${Date.now()}`;
-
-    // Create transaction
-    await PrismaService.createTransaction({
-      transactionId,
-      type: 'TRANSFER',
+    // Execute transfer using shared service
+    const result = await TransferService.execute({
+      fromUserId: fromUser.userId,
+      toUserId: toUser.userId,
       amount,
-      fromUserId,
-      toUserId,
-      smsText: `API:T#${fromUserId}#${amount}#${toUserId}`
+      pin,
+      source: 'API'
     });
 
-    // Update sender balance
-    const newBalance = fromUser.balance - amount;
-    await PrismaService.updateUserBalance(fromUserId, newBalance);
-
-    // Update recipient balance
-    const toUser = await PrismaService.getUser(toUserId);
-    if (toUser) {
-      await PrismaService.updateUserBalance(toUserId, toUser.balance + amount);
+    if (!result.success) {
+      const statusMap = {
+        USER_NOT_FOUND: 404,
+        INVALID_PIN: 403,
+        INSUFFICIENT_FUNDS: 400,
+        DAILY_LIMIT_EXCEEDED: 400
+      };
+      return res.status(statusMap[result.code] || 400).json({
+        status: 'error',
+        code: result.code,
+        message: result.message,
+        data: result.data
+      });
     }
-
-    // Complete transaction
-    const transactionRef = ResponseFormatter.generateTransactionRef();
-    await PrismaService.updateTransaction(transactionId, {
-      status: 'COMPLETED',
-      responseText: `Transfer ${amount} FCFA to ${toUserId}`
-    });
-
-    console.log(`✅ Transfer completed: ${amount} FCFA`);
 
     res.json({
       status: 'success',
-      data: {
-        transactionId,
-        type: 'TRANSFER',
-        amount,
-        fromUserId,
-        toUserId,
-        newBalance,
-        formattedBalance: ResponseFormatter.formatAmount(newBalance),
-        transactionRef,
-        createdAt: new Date().toISOString()
-      }
+      data: result.data
     });
 
   } catch (error) {
@@ -140,6 +108,15 @@ router.post('/payment', async (req, res) => {
         status: 'error',
         code: 'MISSING_FIELDS',
         message: 'fromUserId, merchantId, amount, and pin are required'
+      });
+    }
+
+    // Verify token ownership
+    if (req.user.userId !== fromUserId) {
+      return res.status(403).json({
+        status: 'error',
+        code: 'FORBIDDEN',
+        message: 'Token does not match fromUserId'
       });
     }
 
@@ -251,6 +228,15 @@ router.get('/balance', async (req, res) => {
       });
     }
 
+    // Verify token ownership
+    if (req.user.userId !== userId) {
+      return res.status(403).json({
+        status: 'error',
+        code: 'FORBIDDEN',
+        message: 'Token does not match userId'
+      });
+    }
+
     // Get user
     const user = await PrismaService.getUser(userId);
     if (!user) {
@@ -307,6 +293,15 @@ router.get('/history', async (req, res) => {
         status: 'error',
         code: 'MISSING_FIELDS',
         message: 'userId is required'
+      });
+    }
+
+    // Verify token ownership
+    if (req.user.userId !== userId) {
+      return res.status(403).json({
+        status: 'error',
+        code: 'FORBIDDEN',
+        message: 'You can only view your own transaction history'
       });
     }
 
@@ -368,6 +363,15 @@ router.get('/:transactionId', async (req, res) => {
         status: 'error',
         code: 'TRANSACTION_NOT_FOUND',
         message: 'Transaction not found'
+      });
+    }
+
+    // Verify token ownership - user must be sender or receiver
+    if (req.user.userId !== transaction.fromUserId && req.user.userId !== transaction.toUserId) {
+      return res.status(403).json({
+        status: 'error',
+        code: 'FORBIDDEN',
+        message: 'You can only view your own transactions'
       });
     }
 

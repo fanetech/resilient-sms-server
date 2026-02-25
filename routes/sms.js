@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const TransactionController = require('../controllers/transactionController');
 const AfricasTalkingService = require('../services/africasTalkingService');
+const TransferService = require('../services/transferService');
+const ResponseFormatter = require('../utils/responseFormatter');
+const PrismaService = require('../services/prismaService');
 
 /**
  * AfricasTalking SMS Webhook Endpoint
@@ -13,7 +16,7 @@ router.post('/webhook', async (req, res) => {
 
   try {
     // Extract SMS data from AfricasTalking webhook
-    const { text, from, to, id, date } = req.body;
+    const { text, from, to, id, date, linkId } = req.body;
 
     // Validate required fields
     if (!text || !from) {
@@ -81,6 +84,189 @@ router.post('/webhook', async (req, res) => {
       status: 'error',
       message: error.message,
       processed: false
+    });
+  }
+});
+
+/**
+ * POST /api/sms/callback
+ * Africa's Talking SMS Callback endpoint.
+ * Receives incoming SMS and processes transactions.
+ *
+ * Africa's Talking sends: { from, to, text, id, date }
+ * SMS Format: T#transactionId#amount#toPhone#pin
+ * Example: T#TXN001#5000#22676543211#123456
+ */
+router.post('/callback', async (req, res) => {
+  console.log('📨 SMS Callback received');
+  console.log('📋 Request body:', req.body);
+
+  const { from, to, text, id, date } = req.body;
+
+  try {
+    // Validate required fields
+    if (!from || !text) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'MISSING_FIELDS',
+        message: 'from and text are required'
+      });
+    }
+
+    console.log(`📱 SMS from ${from}: "${text}"`);
+
+    // Parse SMS text: COMMAND#fromUserId#toUserId#amount#pin
+    const parts = text.trim().split('#');
+    const command = parts[0];
+
+    if (!command) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'MISSING_COMMAND',
+        message: 'command is required (T, P, B)'
+      });
+    }
+
+    switch (command.toUpperCase()) {
+      case 'T': {
+        // Format: T#transactionId#amount#toPhone#pin
+        const [, transactionId, amountStr, toPhone, pin] = parts;
+        const amount = parseFloat(amountStr);
+
+        if (!transactionId || !toPhone || !amount || !pin) {
+          return res.status(400).json({
+            status: 'error',
+            code: 'MISSING_FIELDS',
+            message: 'Format: T#transactionId#amount#toPhone#pin'
+          });
+        }
+
+        // Find sender by phone number (from Africa's Talking)
+        const fromUser = await PrismaService.getUserByPhone(from);
+        if (!fromUser) {
+          const errorResponse = ResponseFormatter.formatError(transactionId, 'USER_NOT_FOUND');
+          try {
+            await AfricasTalkingService.sendSMS(from, errorResponse);
+          } catch (smsErr) {
+            console.error(`❌ Failed to send error SMS:`, smsErr.message);
+          }
+          return res.status(404).json({
+            status: 'error',
+            code: 'USER_NOT_FOUND',
+            message: 'Sender not found',
+            response: errorResponse
+          });
+        }
+
+        // Find recipient by phone number
+        const toUser = await PrismaService.getUserByPhone(toPhone);
+        if (!toUser) {
+          const errorResponse = ResponseFormatter.formatError(transactionId, 'USER_NOT_FOUND');
+          try {
+            await AfricasTalkingService.sendSMS(from, errorResponse);
+          } catch (smsErr) {
+            console.error(`❌ Failed to send error SMS:`, smsErr.message);
+          }
+          return res.status(404).json({
+            status: 'error',
+            code: 'USER_NOT_FOUND',
+            message: 'Recipient not found',
+            response: errorResponse
+          });
+        }
+
+        const result = await TransferService.execute({
+          fromUserId: fromUser.userId,
+          toUserId: toUser.userId,
+          amount,
+          pin,
+          source: 'CALLBACK'
+        });
+
+        if (!result.success) {
+          // Format error response like TransactionController
+          const errorResponse = ResponseFormatter.formatError(transactionId, result.code, result.data);
+
+          // Send error SMS to sender
+          try {
+            await AfricasTalkingService.sendSMS(from, errorResponse);
+            console.log(`✅ Error SMS sent to sender: ${from}`);
+          } catch (smsErr) {
+            console.error(`❌ Failed to send error SMS:`, smsErr.message);
+          }
+
+          const statusMap = {
+            USER_NOT_FOUND: 404,
+            INVALID_PIN: 403,
+            INSUFFICIENT_FUNDS: 400,
+            DAILY_LIMIT_EXCEEDED: 400
+          };
+          return res.status(statusMap[result.code] || 400).json({
+            status: 'error',
+            code: result.code,
+            message: result.message,
+            data: result.data,
+            response: errorResponse
+          });
+        }
+
+        // Format success response like TransactionController
+        const successResponse = ResponseFormatter.formatSuccess(transactionId, {
+          balance: result.data.newBalance,
+          transactionRef: result.data.transactionRef
+        });
+
+        // Send SMS notifications after successful transfer
+        const smsResults = { sender: null, recipient: null };
+
+        try {
+          // SMS to sender (success response)
+          try {
+            smsResults.sender = await AfricasTalkingService.sendSMS(from, successResponse);
+            console.log(`✅ SMS sent to sender: ${from}`);
+          } catch (smsErr) {
+            console.error(`❌ Failed to send SMS to sender:`, smsErr.message);
+          }
+
+          // SMS to recipient (credit notification)
+          if (toUser?.phone) {
+            const recipientMsg = `Vous avez recu ${amount} FCFA de ${fromUser?.name || fromUser.userId}. Ref: ${result.data.transactionRef}`;
+            try {
+              smsResults.recipient = await AfricasTalkingService.sendSMS(toUser.phone, recipientMsg);
+              console.log(`✅ SMS sent to recipient: ${toUser.phone}`);
+            } catch (smsErr) {
+              console.error(`❌ Failed to send SMS to recipient:`, smsErr.message);
+            }
+          }
+        } catch (smsError) {
+          console.error('❌ SMS notification error:', smsError.message);
+        }
+
+        return res.json({
+          status: 'success',
+          data: result.data,
+          response: successResponse,
+          smsNotifications: {
+            senderNotified: !!smsResults.sender,
+            recipientNotified: !!smsResults.recipient
+          }
+        });
+      }
+
+      default:
+        return res.status(400).json({
+          status: 'error',
+          code: 'UNKNOWN_COMMAND',
+          message: `Unknown command: ${command}. Supported: T(Transfer), P(Payment), B(Balance)`
+        });
+    }
+
+  } catch (error) {
+    console.error('❌ Callback error:', error);
+    res.status(500).json({
+      status: 'error',
+      code: 'CALLBACK_FAILED',
+      message: error.message
     });
   }
 });

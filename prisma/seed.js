@@ -7,7 +7,7 @@ async function main() {
   console.log('🌱 Seeding database...');
 
   // Hash the default PIN
-  const hashedPin = await hashPin('1234');
+  const hashedPin = await hashPin('123456');
 
   // Créer utilisateurs demo
   const alice = await prisma.user.upsert({

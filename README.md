@@ -1464,6 +1464,28 @@ module.exports = router;
 
 ## Step 10: Testing & Development
 
+### 10.0 Postman Collection
+
+A Postman collection is included for easy API testing. Import the files from the `postman/` folder:
+
+```
+postman/
+├── Resilient-SMS-Server.postman_collection.json  # API collection
+└── Resilient-SMS-Local.postman_environment.json   # Local environment
+```
+
+**To use:**
+1. Open Postman
+2. Click **Import** → Select both JSON files
+3. Select the "Resilient SMS - Local" environment
+4. Start testing endpoints
+
+**Available requests:**
+- **Health**: Health check
+- **Users**: Register, Login, Get Profile, Change PIN, List Users
+- **Transactions**: Transfer, Payment, Balance, History, Transaction Details
+- **SMS Gateway**: Simulate SMS callbacks (Balance, Transfer, Payment)
+
 ### 10.1 Create Test Script
 
 Create `test.js`:

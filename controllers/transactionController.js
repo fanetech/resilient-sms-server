@@ -1,6 +1,8 @@
 const SMSParser = require('../utils/smsParser');
 const ResponseFormatter = require('../utils/responseFormatter');
 const PrismaService = require('../services/prismaService');
+const TransferService = require('../services/transferService');
+const { verifyPin } = require('../utils/pinEncryption');
 
 class TransactionController {
 
@@ -47,94 +49,44 @@ class TransactionController {
     const { transactionId, params } = parsedSMS;
     const [amountStr, recipient, pin] = params;
 
-    console.log(`💸 Processing transfer: ${amountStr} to ${recipient}`);
+    console.log(`💸 [SMS] Processing transfer: ${amountStr} to ${recipient}`);
 
     try {
-      // 1. Parser montant
       const amount = SMSParser.parseAmount(amountStr);
       const expandedRecipient = SMSParser.parseUserId(recipient);
 
-      // 2. Trouver utilisateur expéditeur par téléphone ou utiliser demo
+      // Find sender by phone number or fallback to demo user
       let fromUser = await PrismaService.getUserByPhone(senderNumber);
-      if (!fromUser) {
-        // Fallback to demo user for testing
-        fromUser = await PrismaService.getUser('USER3456');
-      }
-
+      
       if (!fromUser) {
         return ResponseFormatter.formatError(transactionId, 'USER_NOT_FOUND');
       }
 
-      // 3. Valider PIN
-      if (pin !== fromUser.pin) {
-        return ResponseFormatter.formatError(transactionId, 'INVALID_PIN');
-      }
-
-      // 4. Vérifier solde suffisant
-      if (amount > fromUser.balance) {
-        return ResponseFormatter.formatError(
-          transactionId,
-          'INSUFFICIENT_FUNDS',
-          { balance: fromUser.balance }
-        );
-      }
-
-      // 5. Vérifier limite journalière
-      if (amount > 1000000) {
-        return ResponseFormatter.formatError(
-          transactionId,
-          'DAILY_LIMIT_EXCEEDED',
-          { balance: fromUser.balance, limit: 1000000 }
-        );
-      }
-
-      // 6. Créer transaction en BDD
-      await PrismaService.createTransaction({
-        transactionId,
-        type: 'TRANSFER',
-        amount,
+      // Use shared transfer service
+      const result = await TransferService.execute({
         fromUserId: fromUser.userId,
         toUserId: expandedRecipient,
+        amount,
+        pin,
+        source: 'SMS',
         smsText: parsedSMS.raw
       });
 
-      // 7. Mettre à jour solde expéditeur
-      const newBalance = fromUser.balance - amount;
-      await PrismaService.updateUserBalance(fromUser.userId, newBalance);
-
-      // 8. Mettre à jour solde destinataire (si existe)
-      const toUser = await PrismaService.getUser(expandedRecipient);
-      if (toUser) {
-        await PrismaService.updateUserBalance(expandedRecipient, toUser.balance + amount);
+      if (!result.success) {
+        return ResponseFormatter.formatError(
+          transactionId,
+          result.code,
+          result.data
+        );
       }
 
-      // 9. Marquer transaction comme complétée
-      const transactionRef = ResponseFormatter.generateTransactionRef();
-      await PrismaService.updateTransaction(transactionId, {
-        status: 'COMPLETED',
-        responseText: `Transfer ${amount} FCFA to ${expandedRecipient}`
-      });
-
-      console.log(`✅ Transfer completed: ${amount} FCFA, Balance: ${newBalance}`);
-
       return ResponseFormatter.formatSuccess(transactionId, {
-        balance: newBalance,
-        transactionRef
+        balance: result.data.newBalance,
+        transactionRef: result.data.transactionRef
       });
 
     } catch (error) {
       console.error('❌ Transfer error:', error);
-
-      // Logger erreur en BDD
-      try {
-        await PrismaService.updateTransaction(transactionId, {
-          status: 'FAILED',
-          errorMessage: error.message
-        });
-      } catch (dbError) {
-        console.error('❌ Failed to log error to DB:', dbError);
-      }
-
       return ResponseFormatter.formatError(transactionId, 'TRANSFER_FAILED');
     }
   }
@@ -163,7 +115,8 @@ class TransactionController {
       }
 
       // Valider PIN
-      if (pin !== fromUser.pin) {
+      const pinValid = await verifyPin(pin, fromUser.pin);
+      if (!pinValid) {
         return ResponseFormatter.formatError(transactionId, 'INVALID_PIN');
       }
 
@@ -247,7 +200,8 @@ class TransactionController {
       }
 
       // Valider PIN
-      if (pin !== user.pin) {
+      const pinValid = await verifyPin(pin, user.pin);
+      if (!pinValid) {
         return ResponseFormatter.formatError(transactionId, 'INVALID_PIN');
       }
 

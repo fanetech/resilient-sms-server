@@ -42,6 +42,7 @@ class AfricasTalkingService {
       // Format phone number
       const formattedNumber = this.formatPhoneNumber(phoneNumber);
 
+      console.log("formattedNumber =>", formattedNumber)
       // Prepare SMS options
       const options = {
         to: [formattedNumber],
@@ -53,6 +54,7 @@ class AfricasTalkingService {
         options.from = process.env.SMS_SHORTCODE;
       }
 
+      console.log("options =>", options)
       // Send SMS
       const result = await this.sms.send(options);
 

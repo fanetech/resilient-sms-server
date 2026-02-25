@@ -1,0 +1,460 @@
+{
+  "info": {
+    "name": "Resilient SMS Server API",
+    "description": "API collection for testing the Resilient SMS Server endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "USER3456",
+      "type": "string"
+    },
+    {
+      "key": "pin",
+      "value": "1234",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Check if the server is running (public)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Register User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"phone\": \"22670000001\",\n  \"pin\": \"1234\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "register"]
+            },
+            "description": "Register a new user (public)"
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.status === 'success') {",
+                  "    pm.collectionVariables.set('userId', jsonData.data.userId);",
+                  "    pm.collectionVariables.set('token', jsonData.data.token);",
+                  "    console.log('Token saved: ' + jsonData.data.token.substring(0, 20) + '...');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"22676543210\",\n  \"pin\": \"1234\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "login"]
+            },
+            "description": "Login with phone and PIN (public). Token is auto-saved."
+          }
+        },
+        {
+          "name": "Get User Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "{{userId}}"]
+            },
+            "description": "Get user profile by userId (requires auth)"
+          }
+        },
+        {
+          "name": "Change PIN",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPin\": \"1234\",\n  \"newPin\": \"5678\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{userId}}/pin",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "{{userId}}", "pin"]
+            },
+            "description": "Change user PIN (requires auth)"
+          }
+        },
+        {
+          "name": "List All Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users"]
+            },
+            "description": "List all users (requires auth)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "item": [
+        {
+          "name": "Transfer Money",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromUserId\": \"USER3456\",\n  \"toUserId\": \"USER7890\",\n  \"amount\": 5000,\n  \"pin\": \"1234\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions/transfer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions", "transfer"]
+            },
+            "description": "Transfer money between users (requires auth)"
+          }
+        },
+        {
+          "name": "Make Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromUserId\": \"USER3456\",\n  \"merchantId\": \"MERCHANT001\",\n  \"amount\": 10000,\n  \"pin\": \"1234\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions/payment",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions", "payment"]
+            },
+            "description": "Make a payment to a merchant (requires auth)"
+          }
+        },
+        {
+          "name": "Check Balance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions/balance?userId={{userId}}&pin={{pin}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions", "balance"],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "pin",
+                  "value": "{{pin}}"
+                }
+              ]
+            },
+            "description": "Check user account balance (requires auth)"
+          }
+        },
+        {
+          "name": "Transaction History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions/history?userId={{userId}}&limit=20&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions", "history"],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "{{userId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Get transaction history for a user (requires auth)"
+          }
+        },
+        {
+          "name": "Get Transaction Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/transactions/TXN1234567890",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "transactions", "TXN1234567890"]
+            },
+            "description": "Get details of a specific transaction (requires auth)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "SMS Gateway",
+      "item": [
+        {
+          "name": "SMS Callback (Balance)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "from",
+                  "value": "22676543210",
+                  "type": "text"
+                },
+                {
+                  "key": "to",
+                  "value": "1234",
+                  "type": "text"
+                },
+                {
+                  "key": "text",
+                  "value": "B#USER3456#1234",
+                  "type": "text"
+                },
+                {
+                  "key": "date",
+                  "value": "2024-01-15 10:30:00",
+                  "type": "text"
+                },
+                {
+                  "key": "id",
+                  "value": "SMS123456",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sms/callback",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sms", "callback"]
+            },
+            "description": "Simulate SMS callback for balance check (public)"
+          }
+        },
+        {
+          "name": "SMS Callback (Transfer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "from",
+                  "value": "22676543210",
+                  "type": "text"
+                },
+                {
+                  "key": "to",
+                  "value": "1234",
+                  "type": "text"
+                },
+                {
+                  "key": "text",
+                  "value": "T#USER3456#5000#USER7890#1234",
+                  "type": "text"
+                },
+                {
+                  "key": "date",
+                  "value": "2024-01-15 10:30:00",
+                  "type": "text"
+                },
+                {
+                  "key": "id",
+                  "value": "SMS123457",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sms/callback",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sms", "callback"]
+            },
+            "description": "Simulate SMS callback for transfer (public)"
+          }
+        },
+        {
+          "name": "SMS Callback (Payment)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "from",
+                  "value": "22676543210",
+                  "type": "text"
+                },
+                {
+                  "key": "to",
+                  "value": "1234",
+                  "type": "text"
+                },
+                {
+                  "key": "text",
+                  "value": "P#USER3456#10000#MERCHANT001#1234",
+                  "type": "text"
+                },
+                {
+                  "key": "date",
+                  "value": "2024-01-15 10:30:00",
+                  "type": "text"
+                },
+                {
+                  "key": "id",
+                  "value": "SMS123458",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/sms/callback",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "sms", "callback"]
+            },
+            "description": "Simulate SMS callback for payment (public)"
+          }
+        }
+      ]
+    }
+  ]
+}

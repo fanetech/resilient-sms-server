@@ -8,6 +8,8 @@ class SMSParser {
       const trimmed = smsText.trim();
       const parts = trimmed.split('#');
 
+      console.log(`📋 SMS  parts: "${parts}"`);
+
       if (parts.length < 2) {
         throw new Error('Invalid SMS format - minimum 2 parts required (COMMAND#ID)');
       }
@@ -92,6 +94,11 @@ class SMSParser {
    */
   static parseUserId(compressedId) {
     if (!compressedId) return null;
+
+    // Return as-is if already full format
+    if (compressedId.startsWith('USER') || compressedId.startsWith('MERCHANT')) {
+      return compressedId;
+    }
 
     // Expand compressed user IDs
     if (compressedId.startsWith('U')) {

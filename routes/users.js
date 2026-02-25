@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 const PrismaService = require('../services/prismaService');
 const ResponseFormatter = require('../utils/responseFormatter');
 const { hashPin, verifyPin } = require('../utils/pinEncryption');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'resilient-sms-secret-key';
 
 /**
  * POST /api/users/register
@@ -23,12 +26,12 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Validate PIN format (4 digits)
-    if (!/^\d{4}$/.test(pin)) {
+    // Validate PIN format (6 digits)
+    if (!/^\d{6}$/.test(pin)) {
       return res.status(400).json({
         status: 'error',
         code: 'INVALID_PIN_FORMAT',
-        message: 'PIN must be 4 digits'
+        message: 'PIN must be 6 digits'
       });
     }
 
@@ -119,8 +122,12 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Generate simple token (in production, use JWT)
-    const token = Buffer.from(`${user.userId}:${Date.now()}`).toString('base64');
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.userId, phone: user.phone },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     console.log(`✅ User logged in: ${user.userId}`);
 
@@ -141,6 +148,74 @@ router.post('/login', async (req, res) => {
     res.status(500).json({
       status: 'error',
       code: 'LOGIN_FAILED',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/users/reset-pin
+ * Reset user PIN by verifying name and phone
+ */
+router.post('/reset-pin', async (req, res) => {
+  const { name, phone, newPin } = req.body;
+
+  console.log(`🔄 API Reset PIN: ${phone}`);
+
+  try {
+    // Validate required fields
+    if (!name || !phone || !newPin) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'MISSING_FIELDS',
+        message: 'name, phone, and newPin are required'
+      });
+    }
+
+    // Validate new PIN format (6 digits)
+    if (!/^\d{6}$/.test(newPin)) {
+      return res.status(400).json({
+        status: 'error',
+        code: 'INVALID_PIN_FORMAT',
+        message: 'New PIN must be 6 digits'
+      });
+    }
+
+    // Find user by phone
+    const user = await PrismaService.getUserByPhone(phone);
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        code: 'USER_NOT_FOUND',
+        message: 'No account found with this phone number'
+      });
+    }
+
+    // Verify name matches (case-insensitive)
+    if (user.name?.toLowerCase() !== name.toLowerCase()) {
+      return res.status(403).json({
+        status: 'error',
+        code: 'NAME_MISMATCH',
+        message: 'Name does not match the account'
+      });
+    }
+
+    // Hash and update PIN
+    const hashedPin = await hashPin(newPin);
+    await PrismaService.updateUserPin(user.userId, hashedPin);
+
+    console.log(`✅ PIN reset: ${user.userId}`);
+
+    res.json({
+      status: 'success',
+      message: 'PIN reset successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Reset PIN API error:', error);
+    res.status(500).json({
+      status: 'error',
+      code: 'RESET_PIN_FAILED',
       message: error.message
     });
   }
@@ -210,11 +285,11 @@ router.put('/:userId/pin', async (req, res) => {
     }
 
     // Validate new PIN format
-    if (!/^\d{4}$/.test(newPin)) {
+    if (!/^\d{6}$/.test(newPin)) {
       return res.status(400).json({
         status: 'error',
         code: 'INVALID_PIN_FORMAT',
-        message: 'New PIN must be 4 digits'
+        message: 'New PIN must be 6 digits'
       });
     }
 

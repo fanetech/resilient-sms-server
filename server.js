@@ -16,10 +16,23 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes
+// Auth middleware
+const authMiddleware = require('./middleware/auth');
+
+// Public routes (no auth required)
 app.use('/api/sms', require('./routes/sms'));
-app.use('/api/transactions', require('./routes/transactions'));
-app.use('/api/users', require('./routes/users'));
+
+// User routes: skip auth for register and login
+app.use('/api/users', (req, res, next) => {
+  const publicPaths = ['/register', '/login', '/reset-pin'];
+  if (publicPaths.includes(req.path) && req.method === 'POST') {
+    return next();
+  }
+  authMiddleware(req, res, next);
+}, require('./routes/users'));
+
+// Protected routes (auth required)
+app.use('/api/transactions', authMiddleware, require('./routes/transactions'));
 
 // Health check endpoint with Prisma stats
 app.get('/health', async (req, res) => {
@@ -68,6 +81,7 @@ app.get('/', (req, res) => {
       users: {
         register: 'POST /api/users/register',
         login: 'POST /api/users/login',
+        resetPin: 'POST /api/users/reset-pin',
         profile: 'GET /api/users/:userId',
         changePin: 'PUT /api/users/:userId/pin',
         list: 'GET /api/users'
