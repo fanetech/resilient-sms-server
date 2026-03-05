@@ -15,15 +15,19 @@ router.post('/webhook', async (req, res) => {
   console.log('📋 Webhook data:', req.body);
 
   try {
-    // Extract SMS data from AfricasTalking webhook
-    const { text, from, to, id, date, linkId } = req.body;
+    // Extract SMS data - support both Twilio (Body/From/To) and AfricasTalking (text/from/to)
+    const text = req.body.Body || req.body.text;
+    const from = req.body.From || req.body.from;
+    const to = req.body.To || req.body.to;
+    const id = req.body.MessageSid || req.body.id;
+    const date = req.body.date;
 
     // Validate required fields
     if (!text || !from) {
       console.error('❌ Missing required fields: text or from');
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['text', 'from']
+        required: ['text/Body', 'from/From']
       });
     }
 

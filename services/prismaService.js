@@ -27,8 +27,10 @@ class PrismaService {
   // Récupérer utilisateur par numéro de téléphone
   async getUserByPhone(phone) {
     try {
+      // Normalize: strip leading + so both +22660766010 and 22660766010 match
+      const normalized = phone ? phone.replace(/^\+/, '') : phone;
       const user = await this.prisma.user.findUnique({
-        where: { phone: phone }
+        where: { phone: normalized }
       });
 
       console.log(`👤 User found by phone: ${user ? user.name : 'Not found'}`);

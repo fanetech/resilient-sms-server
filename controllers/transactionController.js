@@ -45,27 +45,31 @@ class TransactionController {
   /**
    * Process transfer transaction: T#ID#AMOUNT#RECIPIENT#PIN
    */
-  static async processTransfer(parsedSMS, senderNumber) {
+  static async processTransfer(parsedSMS, _senderNumber) {
     const { transactionId, params } = parsedSMS;
-    const [amountStr, recipient, pin] = params;
+    const [amountStr, senderPhone, recipient, pin] = params;
 
-    console.log(`💸 [SMS] Processing transfer: ${amountStr} to ${recipient}`);
+    console.log(`💸 [SMS] Processing transfer: ${amountStr} from ${senderPhone} to ${recipient}`);
 
     try {
       const amount = SMSParser.parseAmount(amountStr);
-      const expandedRecipient = SMSParser.parseUserId(recipient);
 
-      // Find sender by phone number or fallback to demo user
-      let fromUser = await PrismaService.getUserByPhone(senderNumber);
-      
+      // Find sender by phone number (from SMS body)
+      const fromUser = await PrismaService.getUserByPhone(senderPhone);
       if (!fromUser) {
         return ResponseFormatter.formatError(transactionId, 'USER_NOT_FOUND');
+      }
+
+      // Find recipient by phone number
+      const toUser = await PrismaService.getUserByPhone(recipient);
+      if (!toUser) {
+        return ResponseFormatter.formatError(transactionId, 'RECIPIENT_NOT_FOUND');
       }
 
       // Use shared transfer service
       const result = await TransferService.execute({
         fromUserId: fromUser.userId,
-        toUserId: expandedRecipient,
+        toUserId: toUser.userId,
         amount,
         pin,
         source: 'SMS',
@@ -102,16 +106,17 @@ class TransactionController {
 
     try {
       const amount = SMSParser.parseAmount(amountStr);
-      const expandedMerchant = SMSParser.parseUserId(merchant);
 
-      // Trouver utilisateur
-      let fromUser = await PrismaService.getUserByPhone(senderNumber);
-      if (!fromUser) {
-        fromUser = await PrismaService.getUser('USER3456');
-      }
-
+      // Find sender by phone number
+      const fromUser = await PrismaService.getUserByPhone(senderNumber);
       if (!fromUser) {
         return ResponseFormatter.formatError(transactionId, 'USER_NOT_FOUND');
+      }
+
+      // Find merchant by phone number
+      const merchantUser = await PrismaService.getUserByPhone(merchant);
+      if (!merchantUser) {
+        return ResponseFormatter.formatError(transactionId, 'MERCHANT_NOT_FOUND');
       }
 
       // Valider PIN
@@ -135,24 +140,20 @@ class TransactionController {
         type: 'PAYMENT',
         amount,
         fromUserId: fromUser.userId,
-        toUserId: expandedMerchant,
+        toUserId: merchantUser.userId,
         smsText: parsedSMS.raw
       });
 
       // Mettre à jour soldes
       const newBalance = fromUser.balance - amount;
       await PrismaService.updateUserBalance(fromUser.userId, newBalance);
-
-      const merchantUser = await PrismaService.getUser(expandedMerchant);
-      if (merchantUser) {
-        await PrismaService.updateUserBalance(expandedMerchant, merchantUser.balance + amount);
-      }
+      await PrismaService.updateUserBalance(merchantUser.userId, merchantUser.balance + amount);
 
       // Compléter transaction
       const transactionRef = ResponseFormatter.generateTransactionRef();
       await PrismaService.updateTransaction(transactionId, {
         status: 'COMPLETED',
-        responseText: `Payment ${amount} FCFA to ${expandedMerchant}`
+        responseText: `Payment ${amount} FCFA to ${merchantUser.userId}`
       });
 
       console.log(`✅ Payment successful: ${amount} FCFA to ${merchant}, Balance: ${newBalance}`);

@@ -42,9 +42,9 @@ class SMSParser {
 
     // Validate by command type
     switch (command) {
-      case 'T': // Transfer: T#ID#AMOUNT#RECIPIENT#PIN
-        if (params.length < 3) {
-          return { valid: false, error: 'Transfer requires: amount, recipient, PIN' };
+      case 'T': // Transfer: T#ID#AMOUNT#SENDER#RECIPIENT#PIN
+        if (params.length < 4) {
+          return { valid: false, error: 'Transfer requires: amount, senderPhone, recipientPhone, PIN' };
         }
         break;
 

@@ -1,33 +1,27 @@
-const africastalking = require('africastalking');
+const twilio = require('twilio');
 
-class AfricasTalkingService {
+class SmsService {
   constructor() {
-    // Validate required credentials
-    if (!process.env.AFRICASTALKING_API_KEY || !process.env.AFRICASTALKING_USERNAME) {
-      console.warn('⚠️ AfricasTalking credentials not configured. SMS sending will fail.');
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
+      console.warn('⚠️ Twilio credentials not configured. SMS sending will fail.');
       this.initialized = false;
       return;
     }
 
-    // Initialize AfricasTalking client
-    this.client = africastalking({
-      apiKey: process.env.AFRICASTALKING_API_KEY,
-      username: process.env.AFRICASTALKING_USERNAME,
-    });
-
-    this.sms = this.client.SMS;
+    this.client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    this.from = process.env.TWILIO_PHONE_NUMBER;
     this.initialized = true;
 
-    console.log(`✅ AfricasTalking initialized - Username: ${process.env.AFRICASTALKING_USERNAME}`);
+    console.log(`✅ Twilio initialized - From: ${this.from}`);
   }
 
   /**
-   * Send SMS via AfricasTalking
+   * Send SMS via Twilio
    */
   async sendSMS(phoneNumber, message) {
     if (!this.initialized) {
-      console.error('❌ AfricasTalking not initialized. Check credentials.');
-      throw new Error('AfricasTalking not initialized');
+      console.error('❌ Twilio not initialized. Check credentials.');
+      throw new Error('Twilio not initialized');
     }
 
     try {
@@ -39,59 +33,41 @@ class AfricasTalkingService {
         message = message.substring(0, 157) + '...';
       }
 
-      // Format phone number
       const formattedNumber = this.formatPhoneNumber(phoneNumber);
 
-      console.log("formattedNumber =>", formattedNumber)
-      // Prepare SMS options
-      const options = {
-        to: [formattedNumber],
-        message: message,
-      };
+      const result = await this.client.messages.create({
+        body: message,
+        from: this.from,
+        to: formattedNumber
+      });
 
-      // Add sender ID if configured
-      if (process.env.SMS_SHORTCODE) {
-        options.from = process.env.SMS_SHORTCODE;
-      }
-
-      console.log("options =>", options)
-      // Send SMS
-      const result = await this.sms.send(options);
-
-      // Log result
-      if (result.SMSMessageData.Recipients.length > 0) {
-        const recipient = result.SMSMessageData.Recipients[0];
-        console.log(`✅ SMS sent - Status: ${recipient.status}, Cost: ${recipient.cost}`);
-      }
+      console.log(`✅ SMS sent - SID: ${result.sid}, Status: ${result.status}`);
 
       return {
         success: true,
         result: result,
-        provider: 'africastalking',
-        cost: result.SMSMessageData.Recipients[0]?.cost
+        provider: 'twilio',
+        cost: result.price
       };
 
     } catch (error) {
-      console.error('❌ AfricasTalking SMS error:', error);
+      console.error('❌ Twilio SMS error:', error);
       throw new Error(`SMS send failed: ${error.message}`);
     }
   }
 
   /**
-   * Format phone number for AfricasTalking
+   * Format phone number to E.164 format required by Twilio
    */
   formatPhoneNumber(phoneNumber) {
-    // Remove any non-digit characters except +
     let formatted = phoneNumber.replace(/[^\d+]/g, '');
 
-    // Add + if missing and number looks international
     if (!formatted.startsWith('+') && formatted.length > 10) {
       formatted = '+' + formatted;
     }
 
-    // Ensure Burkina Faso format for local numbers
     if (formatted.length === 8 && !formatted.startsWith('+')) {
-      formatted = '+226' + formatted; // Burkina Faso country code
+      formatted = '+226' + formatted;
     }
 
     console.log(`📞 Phone number formatted: ${phoneNumber} → ${formatted}`);
@@ -103,13 +79,13 @@ class AfricasTalkingService {
    */
   async getDeliveryReports() {
     if (!this.initialized) {
-      throw new Error('AfricasTalking not initialized');
+      throw new Error('Twilio not initialized');
     }
 
     try {
-      const reports = await this.sms.fetchMessages();
-      console.log(`📊 Fetched ${reports.SMSMessageData.Messages.length} delivery reports`);
-      return reports;
+      const messages = await this.client.messages.list({ limit: 20 });
+      console.log(`📊 Fetched ${messages.length} delivery reports`);
+      return messages;
     } catch (error) {
       console.error('❌ Error fetching delivery reports:', error);
       throw error;
@@ -121,12 +97,12 @@ class AfricasTalkingService {
    */
   async getBalance() {
     if (!this.initialized) {
-      throw new Error('AfricasTalking not initialized');
+      throw new Error('Twilio not initialized');
     }
 
     try {
-      const balance = await this.client.APPLICATION.fetchApplicationData();
-      console.log(`💰 AfricasTalking balance: ${balance.UserData.balance}`);
+      const balance = await this.client.balance.fetch();
+      console.log(`💰 Twilio balance: ${balance.balance} ${balance.currency}`);
       return balance;
     } catch (error) {
       console.error('❌ Error fetching balance:', error);
@@ -135,4 +111,4 @@ class AfricasTalkingService {
   }
 }
 
-module.exports = new AfricasTalkingService();
+module.exports = new SmsService();
